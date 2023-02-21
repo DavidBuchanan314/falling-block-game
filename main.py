@@ -282,7 +282,7 @@ class Game:
 				if event.key == pygame.K_p:
 					self.pause()
 		
-		# keep track ow how long these keys have been held
+		# keep track of how long these keys have been held
 		keys = pygame.key.get_pressed()
 		if keys[pygame.K_DOWN]:
 			self.heldticks["down"] += 1

@@ -30,7 +30,7 @@ pygame.init()
 pygame.font.init()
 pygame.mixer.init()
 
-font = pygame.font.SysFont("Ubuntu", 16)
+font = pygame.font.Font("./assets/fonts/CenturyGothic.ttf", 20)
 mediumfont = pygame.font.SysFont("Ubuntu", 48)
 hugefont = pygame.font.SysFont("Ubuntu", 128)
 
@@ -282,7 +282,7 @@ class Game:
 				if event.key == pygame.K_p:
 					self.pause()
 		
-		# keep track ow how long these keys have been held
+		# keep track of how long these keys have been held
 		keys = pygame.key.get_pressed()
 		if keys[pygame.K_DOWN]:
 			self.heldticks["down"] += 1
@@ -423,9 +423,14 @@ class Game:
 
 
 		# score
-		surface.blit(font.render(f"Score: {self.score:,}", True, WHITE), (10, 30))
-		surface.blit(font.render(f"Level: {self.level}", True, WHITE), (10, 50))
-		surface.blit(font.render(f"Lines: {self.line_count}", True, WHITE), (10, 70))
+		rendered_score = font.render(f"{self.score:,}", True, WHITE)
+		surface.blit(rendered_score, (384-rendered_score.get_width()//2, 440))
+
+		rendered_level = font.render(f"{self.level}", True, WHITE)
+		surface.blit(rendered_level, (384-rendered_level.get_width()//2, 500))
+
+		rendered_line_count = font.render(f"{self.line_count}", True, WHITE)
+		surface.blit(rendered_line_count, (384-rendered_line_count.get_width()//2, 560))
 
 
 def main():

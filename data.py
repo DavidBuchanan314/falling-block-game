@@ -9,6 +9,17 @@ CELL_COLOURS = {
     "Z": (0xf0, 0x00, 0x00),
 }
 
+
+CENTRE_SHIFT = {
+    "I": 0,
+    "J": 0.5,
+    "L": 0.5,
+    "O": 0,
+    "S": 0.5,
+    "T": 0.5,
+    "Z": 0.5,
+}
+
 """
 Yup, I really am hardcoding all the rotation states.
 This is supposed to be a fun project, and rotation logic

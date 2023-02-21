@@ -21,7 +21,7 @@ from enum import Enum, auto
 import random
 import pygame
 
-from data import CELL_COLOURS, SHAPES, WALLKICKS
+from data import CENTRE_SHIFT, SHAPES, WALLKICKS
 
 BLACK = (0x00, 0x00, 0x00)
 WHITE = (0xff, 0xff, 0xff)
@@ -408,18 +408,20 @@ class Game:
 		# draw preview of next shape
 		for i, shape in enumerate(self.shape_queue):
 			shape_sprite = SHAPES[shape][0]
+			shift = CENTRE_SHIFT[shape]
 			for y, row in enumerate(shape_sprite):
 				for x, val in enumerate(row):
 					if val != " ":
-						surface.blit(imgs["normal"][val], (left_margin + (x + gridwidth + 3) * cell_size, top_margin + (y + 3 + i * 2.5) * cell_size))
+						surface.blit(imgs["normal"][val], (left_margin + (x + gridwidth + 3 + shift) * cell_size, top_margin - 4 + (y + 3 + i * 2.5) * cell_size))
 
 		# draw hold
 		if self.hold:
 			shape_sprite = SHAPES[self.hold][0]
+			shift = CENTRE_SHIFT[self.hold]
 			for y, row in enumerate(shape_sprite):
 				for x, val in enumerate(row):
 					if val != " ":
-						surface.blit(imgs["normal"][val], (left_margin + (x - 7) * cell_size, top_margin + (y + 3) * cell_size))
+						surface.blit(imgs["normal"][val], (left_margin + 4 + (x - 7 + shift) * cell_size, top_margin - 4 + (y + 3) * cell_size))
 
 
 		# score

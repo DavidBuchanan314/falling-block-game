@@ -1,9 +1,10 @@
 """
 TODO:
 
-- Line clear animation
+- Line clear animation [mostly done, drop animation is buggy]
 - full bonus scoring logic
-- reset lock timer on successful rotate
+- hard drop animation [DONE]
+- reset lock timer on successful rotate [half-done (need second timer)]
 - random piece selection logic [DONE]
 - DAS [DONE]
 - Wall kicks [DONE]
@@ -18,6 +19,7 @@ TODO:
 """
 
 from enum import Enum, auto
+from abc import ABC, abstractmethod
 import random
 import pygame
 
@@ -35,7 +37,8 @@ mediumfont = pygame.font.SysFont("Ubuntu", 48)
 hugefont = pygame.font.SysFont("Ubuntu", 128)
 
 size = width, height = 1280, 720
-screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+render_surface = pygame.surface.Surface(size)
+screen = pygame.display.set_mode((width*2, height*2))
 
 clock = pygame.time.Clock()
 
@@ -46,6 +49,8 @@ cell_size = 26 #(height * 0.8) // (gridheight - topzone)
 top_margin = (height - (cell_size*(gridheight-topzone))) // 2
 left_margin = (width - (cell_size*gridwidth)) // 2
 
+CLEAR_ANIMATION_DELAY = 20 # frames
+CLEAR_ANIMATION_DURATION = 5 # frames
 
 sfx = {
 	"move":        pygame.mixer.Sound("assets/sound/move.wav"),
@@ -74,7 +79,96 @@ def load_images():
 imgs = load_images()
 bgimg = pygame.image.load("assets/images/main-background.png")
 matriximg = pygame.image.load("assets/images/matrix.png")
+vfx_harddrop = pygame.image.load("assets/images/vfx-hardDrop.png")
+vfx_sparkle = pygame.image.load("assets/images/vfx-sparkle.png")
+vfx_minolocked = pygame.image.load("assets/images/vfx-minoLocked-01.png")
 
+# pre-bake sprite frames for the line clear animation
+minolock_frames = []
+scale = 1.0
+for i in range(26):
+	if i <= 5:
+		scale += 0.05
+	else:
+		scale -= 0.05
+	frame = pygame.transform.rotozoom(vfx_minolocked, -i*5, scale)
+	frame.set_alpha(200 * (1 - i/26))
+	minolock_frames.append(frame)
+
+class Particle(ABC):
+	@abstractmethod
+	def update(self):
+		"""
+		Returns True if the particle is still alive, False if its dead
+		"""
+		pass
+
+	@abstractmethod
+	def render(self, surface):
+		pass
+
+class StreakParticle(Particle):
+	def __init__(self, row, col, height):
+		"""
+		row is the top row, "height" extends downwards (positive direction)
+		"""
+		self.alpha = 128
+		self.row = row
+		self.col = col
+		self.height = height
+		self.sprite = pygame.transform.smoothscale(vfx_harddrop, (26, 26*height))
+	
+	def update(self):
+		self.alpha -= 5
+		return self.alpha > 0
+	
+	def render(self, surface):
+		self.sprite.set_alpha(self.alpha)
+		surface.blit(self.sprite, (left_margin + self.col * cell_size, top_margin + self.row * cell_size))
+
+
+class SparkleParticle(Particle):
+	def __init__(self, row, col, alpha):
+		self.row = row + random.random()
+		self.col = col + random.random()
+		self.yvel = 0.01 + random.random() * 0.01
+		self.alpha = alpha
+		sparkle_size = 3 + random.random() * 4
+		self.sprite = pygame.transform.smoothscale(vfx_sparkle, (sparkle_size, sparkle_size))
+	
+	def update(self):
+		self.alpha -= 5
+		self.row -= self.yvel
+		return self.alpha > 0
+	
+	def render(self, surface):
+		self.sprite.set_alpha(self.alpha)
+		surface.blit(self.sprite, (
+			int(left_margin + self.col * cell_size),
+			int(top_margin + self.row * cell_size)
+		))
+
+
+class RowClearParticle(Particle):
+	def __init__(self, row, col, anim_progress):
+		self.row = row
+		self.col = col
+		self.anim_progress = anim_progress
+	
+	def update(self):
+		self.anim_progress += 1
+		return self.anim_progress < 26
+	
+	def render(self, surface):
+		#vfx_minolocked.set_alpha((1 - max(0, self.anim_progress)/20) * 255)
+		sprite = minolock_frames[max(0, int(self.anim_progress))]
+		#sprite.set_alpha(80)
+		#assert(type(sprite) is pygame.Surface)
+		w, h = sprite.get_size()
+		surface.blit(sprite, (
+			left_margin + (self.col + 0.5 ) * cell_size - w / 2,
+			top_margin + (self.row + 0.5) * cell_size - h / 2
+		))
 
 class GameState(Enum):
 	"""
@@ -99,7 +193,8 @@ class Game:
 		self.level = 1
 		self.line_count = 0
 		self.gameticks = 0
-		self.last_drop_time = 0
+		self.time_til_drop = self.time_per_drop()
+		self.line_clear_animation_ticks_remaining = 0
 		self.heldticks = {
 			"left": 0,
 			"right": 0,
@@ -112,9 +207,10 @@ class Game:
 		self.active_x = None
 		self.active_y = None
 		self.active_rot = None
+		self.particles = []
 		self.spawn_shape()
 
-		pygame.mixer.music.play(-1, 0.0)
+		#pygame.mixer.music.play(-1, 0.0)
 	
 	def random_shape(self):
 		if not self.random_bag:
@@ -147,6 +243,8 @@ class Game:
 				self.active_x = new_x
 				self.active_y = new_y
 				sfx["rotate"].play()
+				if self.is_resting(): #XXX should this be if it *was* resting?
+					self.time_til_drop = self.time_per_drop()
 				return True
 		
 		return False
@@ -159,6 +257,8 @@ class Game:
 			return False
 		else:
 			sfx["move"].play()
+			if self.is_resting():
+				self.time_til_drop = self.time_per_drop()
 			return True
 	
 	def try_movey(self, direction):
@@ -178,6 +278,9 @@ class Game:
 				posx = self.active_x + x
 				if val != " ":
 					self.gridstate[posy][posx] = val
+
+	def is_resting(self):
+		return self.does_collide(testy=self.active_y+1)
 
 	def does_collide(self, testx=None, testy=None, testrot=None):
 		if testx is None:
@@ -210,17 +313,27 @@ class Game:
 		# if we made it this far, there were no collisions
 		return False
 	
+	def do_collapse_rows(self):
+		for y in range(gridheight):  # scan the grid from top to bottom
+			if y in self.rows_to_collapse:
+				self.gridstate = [[" "] * gridwidth] + self.gridstate[:y] + self.gridstate[y+1:]
+		self.rows_to_collapse = []
+
 	def check_lines(self):
-		linecount = 0
+		self.rows_to_collapse = []
 		for y in range(gridheight):  # scan the grid from top to bottom
 			if self.gridstate[y].count(" ") == 0:
-				linecount += 1
-				# clear the line, shift down all previous rows
-				self.gridstate = [[" "] * gridwidth] + self.gridstate[:y] + self.gridstate[y+1:]
+				self.gridstate[y] = [" "] * gridwidth
+				for x in range(gridwidth):
+					self.particles.append(RowClearParticle(
+						y - topzone, x, -x
+					))
+				self.rows_to_collapse.append(y)
 		
-		if not linecount:
-			return
+		if not self.rows_to_collapse:
+			return False
 		
+		linecount = len(self.rows_to_collapse)
 		if linecount == 4:
 			sfx["tetris"].play()
 		else:
@@ -233,6 +346,10 @@ class Game:
 			self.level += 1
 			sfx["levelUp"].play()
 		self.line_count = new_line_total
+
+		self.line_clear_animation_ticks_remaining = CLEAR_ANIMATION_DELAY + CLEAR_ANIMATION_DURATION
+
+		return True
 		
 	def pause(self):
 		self.gamestate = GameState.PAUSED
@@ -255,6 +372,15 @@ class Game:
 					self.__init__()
 	
 	def update_gameloop(self, events):
+		# update particles (keep only those that are still alive!)
+		self.particles = list(filter(lambda p: p.update(), self.particles))
+
+		if self.line_clear_animation_ticks_remaining > 0:
+			self.line_clear_animation_ticks_remaining -= 1
+			if self.line_clear_animation_ticks_remaining == 0:
+				self.do_collapse_rows()
+			return
+
 		self.gameticks += 1
 
 		for event in events:
@@ -273,9 +399,35 @@ class Game:
 				if event.key == pygame.K_c:
 					self.swap_hold()
 				if event.key == pygame.K_SPACE:
+					drop_top = self.active_y
+
 					while self.try_movey(1):
 						self.score += 2
 					
+					drop_height = self.active_y - drop_top
+					visited_cols = set()
+					shape_sprite = SHAPES[self.active_shape][self.active_rot]
+					for y, row in list(enumerate(shape_sprite))[::-1]:
+						for x, val in enumerate(row):
+							if val != " ":
+								if x in visited_cols:
+									continue
+								visited_cols.add(x)
+
+								self.particles.append(StreakParticle(
+									drop_top + y - topzone,
+									self.active_x + x,
+									drop_height
+								))
+
+								for sparkle_y in range(drop_height):
+									if random.random() > 0.5:
+										continue
+									self.particles.append(SparkleParticle(
+										drop_top + y - topzone + sparkle_y,
+										self.active_x + x,
+										(sparkle_y/drop_height) * 200
+									))
 					sfx["hardDrop"].play()
 					self.lockdown()
 				
@@ -308,14 +460,15 @@ class Game:
 		
 		if self.heldticks["right"] == 1 or (self.heldticks["right"] > 10 and self.heldticks["right"] % 2 == 1):  # 30Hz ARR, 10 frame DAS
 			self.try_movex(1)
-			
-
-		time_per_row = (0.8 - ((self.level - 1) * 0.007)) ** (self.level - 1)
-		gametime = self.gameticks * (1/60)
-		while self.last_drop_time < gametime:
-			self.last_drop_time += time_per_row
+		
+		self.time_til_drop -= 1/60
+		if self.time_til_drop < 0:
 			self.apply_gravity()
+			self.time_til_drop += self.time_per_drop()
 	
+	def time_per_drop(self):
+		return (0.8 - ((self.level - 1) * 0.007)) ** (self.level - 1)
+
 	def swap_hold(self):
 		if not self.can_swap:
 			return
@@ -339,6 +492,8 @@ class Game:
 	
 	def apply_gravity(self):
 		if not self.try_movey(1):
+			#print(self.last_rotate_tick, self.last_drop_time * 60)
+			#if self.last_rotate_tick + 60 < self.last_drop_time * 60:
 			self.lockdown()
 
 
@@ -371,12 +526,23 @@ class Game:
 		surface.blit(bgimg, (240, 61))
 		surface.blit(matriximg, (240+264, 61+32))
 
+		# draw particles (under everything else)
+		for particle in self.particles:
+			particle.render(surface)
+
 		# draw main grid state
+		if 0 < self.line_clear_animation_ticks_remaining < CLEAR_ANIMATION_DURATION:
+			slide_thresh = min(self.rows_to_collapse) - topzone
+			slide = 1 + max(self.rows_to_collapse) - min(self.rows_to_collapse)
+			slide *= 1 - (self.line_clear_animation_ticks_remaining / CLEAR_ANIMATION_DURATION)
+		else:
+			slide = 0
+			slide_thresh = 0
 		for y in range(gridheight - topzone):
 			for x in range(gridwidth):
 				cell = self.gridstate[y+topzone][x]
 				if cell != " ":
-					surface.blit(imgs["normal"][cell], (left_margin + x * cell_size, top_margin + y * cell_size))
+					surface.blit(imgs["locked"][cell], (left_margin + x * cell_size, top_margin + (y + (slide if y < slide_thresh else 0)) * cell_size))
 
 		# find ghost position
 		for ghosty in range(self.active_y, gridheight):
@@ -395,6 +561,10 @@ class Game:
 					surface.blit(imgs["ghost"][val], (left_margin + posx * cell_size, top_margin + posy * cell_size))
 
 		# draw active shape
+		if self.is_resting():
+			alpha = int((self.time_til_drop / self.time_per_drop()) * 255)
+		else:
+			alpha = 255
 		shape_sprite = SHAPES[self.active_shape][self.active_rot]
 		for y, row in enumerate(shape_sprite):
 			posy = self.active_y + y - topzone
@@ -403,7 +573,9 @@ class Game:
 			for x, val in enumerate(row):
 				if val != " ":
 					posx = self.active_x + x
+					imgs["normal"][val].set_alpha(alpha)
 					surface.blit(imgs["normal"][val], (left_margin + posx * cell_size, top_margin + posy * cell_size))
+					imgs["normal"][val].set_alpha(255)
 
 		# draw preview of next shape
 		for i, shape in enumerate(self.shape_queue):
@@ -435,6 +607,12 @@ class Game:
 		surface.blit(rendered_line_count, (384-rendered_line_count.get_width()//2, 560))
 
 
+		# "particle" effects
+
+		#scaled_vfx = pygame.transform.smoothscale(vfx_harddrop, (26*3, 26*10))
+		#surface.blit(scaled_vfx, (600, 400))
+
+
 def main():
 	"""
 		Main loop happens here
@@ -458,8 +636,10 @@ def main():
 		state.update(events)
 
 		# render game state
-		screen.fill((0, 0, 0))
-		state.render(screen)
+		render_surface.fill((0, 0, 0))
+		state.render(render_surface)
+		scaled = pygame.transform.scale2x(render_surface)
+		screen.blit(scaled, (0, 0))
 
 		# show time it took to render the previous frame (we have a 16ms time budget to hit 60fps)
 		screen.blit(font.render(f"{frametime:.2f}ms", True, WHITE), (10, 10))

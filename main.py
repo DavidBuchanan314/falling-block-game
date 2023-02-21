@@ -195,6 +195,7 @@ class Game:
 		self.gameticks = 0
 		self.time_til_drop = self.time_per_drop()
 		self.line_clear_animation_ticks_remaining = 0
+		self.rows_to_collapse = []
 		self.heldticks = {
 			"left": 0,
 			"right": 0,
@@ -379,6 +380,7 @@ class Game:
 			self.line_clear_animation_ticks_remaining -= 1
 			if self.line_clear_animation_ticks_remaining == 0:
 				self.do_collapse_rows()
+				self.spawn_shape()
 			return
 
 		self.gameticks += 1
@@ -485,8 +487,8 @@ class Game:
 	
 	def lockdown(self):
 		self.stamp_piece()
-		self.check_lines()
-		self.spawn_shape()
+		if not self.check_lines():
+			self.spawn_shape()
 		self.can_swap = True
 		sfx["lock"].play()
 	
@@ -531,7 +533,7 @@ class Game:
 			particle.render(surface)
 
 		# draw main grid state
-		if 0 < self.line_clear_animation_ticks_remaining < CLEAR_ANIMATION_DURATION:
+		if self.rows_to_collapse and 0 < self.line_clear_animation_ticks_remaining < CLEAR_ANIMATION_DURATION:
 			slide_thresh = min(self.rows_to_collapse) - topzone
 			slide = 1 + max(self.rows_to_collapse) - min(self.rows_to_collapse)
 			slide *= 1 - (self.line_clear_animation_ticks_remaining / CLEAR_ANIMATION_DURATION)
@@ -550,32 +552,34 @@ class Game:
 				break
 		
 		# draw ghost
-		shape_sprite = SHAPES[self.active_shape][self.active_rot]
-		for y, row in enumerate(shape_sprite):
-			posy = ghosty + y - topzone
-			if posy < 0:
-				continue
-			for x, val in enumerate(row):
-				if val != " ":
-					posx = self.active_x+x
-					surface.blit(imgs["ghost"][val], (left_margin + posx * cell_size, top_margin + posy * cell_size))
+		if not self.line_clear_animation_ticks_remaining:
+			shape_sprite = SHAPES[self.active_shape][self.active_rot]
+			for y, row in enumerate(shape_sprite):
+				posy = ghosty + y - topzone
+				if posy < 0:
+					continue
+				for x, val in enumerate(row):
+					if val != " ":
+						posx = self.active_x+x
+						surface.blit(imgs["ghost"][val], (left_margin + posx * cell_size, top_margin + posy * cell_size))
 
 		# draw active shape
-		if self.is_resting():
-			alpha = int((self.time_til_drop / self.time_per_drop()) * 255)
-		else:
-			alpha = 255
-		shape_sprite = SHAPES[self.active_shape][self.active_rot]
-		for y, row in enumerate(shape_sprite):
-			posy = self.active_y + y - topzone
-			if posy < 0:
-				continue
-			for x, val in enumerate(row):
-				if val != " ":
-					posx = self.active_x + x
-					imgs["normal"][val].set_alpha(alpha)
-					surface.blit(imgs["normal"][val], (left_margin + posx * cell_size, top_margin + posy * cell_size))
-					imgs["normal"][val].set_alpha(255)
+		if not self.line_clear_animation_ticks_remaining:
+			if self.is_resting():
+				alpha = int((self.time_til_drop / self.time_per_drop()) * 255)
+			else:
+				alpha = 255
+			shape_sprite = SHAPES[self.active_shape][self.active_rot]
+			for y, row in enumerate(shape_sprite):
+				posy = self.active_y + y - topzone
+				if posy < 0:
+					continue
+				for x, val in enumerate(row):
+					if val != " ":
+						posx = self.active_x + x
+						imgs["normal"][val].set_alpha(alpha)
+						surface.blit(imgs["normal"][val], (left_margin + posx * cell_size, top_margin + posy * cell_size))
+						imgs["normal"][val].set_alpha(255)
 
 		# draw preview of next shape
 		for i, shape in enumerate(self.shape_queue):

@@ -2,9 +2,9 @@
 TODO:
 
 - Line clear animation [mostly done, drop animation is buggy]
-- full bonus scoring logic
-- hard drop animation [DONE]
+- full bonus scoring logic [back-to-back tetris bonus, no tspin detection tho]
 - reset lock timer on successful rotate [half-done (need second timer)]
+- hard drop animation [DONE]
 - random piece selection logic [DONE]
 - DAS [DONE]
 - Wall kicks [DONE]
@@ -16,6 +16,13 @@ TODO:
 - 2 player???
 - loading screen?
 - Non-copyrighted assets (lol)
+
+BUG:
+
+somehow a piece got "stuck" during a line clear, and the rows did not collapse.
+
+theory: there's a one-frame window where you can press space and re-drop the same piece
+twice?
 """
 
 from enum import Enum, auto
@@ -196,6 +203,7 @@ class Game:
 		self.time_til_drop = self.time_per_drop()
 		self.line_clear_animation_ticks_remaining = 0
 		self.rows_to_collapse = []
+		self.prev_back2back = False
 		self.heldticks = {
 			"left": 0,
 			"right": 0,
@@ -335,13 +343,18 @@ class Game:
 			return False
 		
 		linecount = len(self.rows_to_collapse)
+		back2back_bonus = 1.0
 		if linecount == 4:
+			if self.prev_back2back:
+				back2back_bonus = 1.5
 			sfx["tetris"].play()
+			self.prev_back2back = True
 		else:
 			sfx["lineClear"].play()
+			self.prev_back2back = False
 		sfx["collapse"].play()
 		
-		self.score += self.level * [0, 100, 300, 500, 800][linecount]
+		self.score += int(self.level * [0, 100, 300, 500, 800][linecount] * back2back_bonus)
 		new_line_total = self.line_count + linecount
 		if self.line_count // 10 != new_line_total // 10: # if we crossed a new multiple of 10 boundary
 			self.level += 1
@@ -431,6 +444,7 @@ class Game:
 										(sparkle_y/drop_height) * 200
 									))
 					sfx["hardDrop"].play()
+					self.time_til_drop = self.time_per_drop()
 					self.lockdown()
 				
 				if event.key == pygame.K_p:
@@ -455,6 +469,7 @@ class Game:
 			sfx["move"].play()
 		if self.heldticks["down"] % 2 == 1: # 30Hz softdrop
 			if self.try_movey(1):
+				self.time_til_drop = self.time_per_drop()
 				self.score += 1
 		
 		if self.heldticks["left"] == 1 or (self.heldticks["left"] > 10 and self.heldticks["left"] % 2 == 1):  # 30Hz ARR, 10 frame DAS

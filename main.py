@@ -98,7 +98,7 @@ for i in range(26):
 		scale += 0.05
 	else:
 		scale -= 0.05
-	frame = pygame.transform.rotozoom(vfx_minolocked, -i*5, scale)
+	frame = pygame.transform.rotozoom(vfx_minolocked, i*5, scale)
 	frame.set_alpha(200 * (1 - i/26))
 	minolock_frames.append(frame)
 
